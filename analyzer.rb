@@ -9,13 +9,14 @@ CONSTRAINT_ANALYZER_DIR = "/Users/utsavsethi/workspace/data-format-project/forma
 
 # return array of all statements containing queries in format
 # [{:class => "CLASSNAME", :stmt => "stmt containing query"}]
-def load_queries(app_name)
-  output_file = "/Users/utsavsethi/tmp/query_output_#{app_name}"
+def load_queries_and_scopes(app_name)
+  query_output_file = "/Users/utsavsethi/tmp/query_output_#{app_name}"
+  scope_output_file = "/Users/utsavsethi/tmp/scope_output_#{app_name}"
   app_dir = File.join(APPS_DIR, "/#{app_name}") 
-  if !File.exist?(output_file)
-    `cd #{app_dir} && echo "PrintQueryCheck: { output_filename: \"#{output_file}\"}" &> ./config/rails_best_practices.yml && rails_best_practices . -c ./config/rails_best_practices.yml`
+  if !File.exist?(query_output_file) or !File.exist?(scope_output_file)
+    `cd #{app_dir} && echo "PrintQueryCheck: { output_filename_query: \"#{query_output_file}\", output_filename_scope: \"#{scope_output_file}\"}" &> ./config/rails_best_practices.yml && rails_best_practices . -c ./config/rails_best_practices.yml`
   end
-  return Marshal.load(File.binread(output_file)) 
+  return Marshal.load(File.binread(query_output_file)), Marshal.load(File.binread(scope_output_file)) 
 end
 
 def load_constraints(app_name)
@@ -41,6 +42,8 @@ def get_all_methods(node)
 
   if node.type == :call
     return get_all_methods(node[0]) + get_all_methods(node[2])
+  elsif node.type == :fcall || node.type == :vcall
+    return [node[0][0]]
   elsif node.type == :ident
     return [node[0]]
   else
@@ -200,26 +203,76 @@ def infer_object_type(node)
   end
 end
 
-# parse queries and add metadata fields to query info object
-def process_queries(query_arr)
-  output = []
+
+def preprocess_queries(query_arr, scope_hash={})
+  output_arr = []
   query_arr.each do |query_obj|
-    #puts "processing query: " + query_obj.to_s 
+    class_name = query_obj[:class]
     begin 
       ast = YARD::Parser::Ruby::RubyParser.parse(query_obj[:stmt]).root 
     rescue  
       next
     end
-    query = extract_query(ast) 
-    query_methods = get_all_methods(query)
-    
-    base_object_type = infer_object_type(query)
+    query_node = extract_query(ast) 
+    next if !query_node
+    query_methods = get_all_methods(query_node)
+    base_object_type = infer_object_type(query_node)
+
+    #Replace any methods with scopes
+    #puts "==================="
+    #puts "original query source: #{query_node.source}" 
+    found_scopes = scope_hash[base_object_type] ? query_methods & scope_hash[base_object_type].keys : []
+    if !found_scopes.empty?
+      #puts "has scopes: #{found_scopes}"
+      query_sources = found_scopes.sort_by(&:length).reverse.inject([query_node.source]) do |query_sources, found_scope|
+        #puts "scope: #{found_scope}, sources: #{scope_hash[base_object_type][found_scope]}"
+        output = []
+        query_sources.each do |query_source|
+          scope_hash[base_object_type][found_scope].each do |scope_source|
+            output << query_source.gsub(/#{found_scope}(?:\(.*?\))?/, scope_source)  
+          end 
+        end
+        output
+      end
+      #puts "new query sources: #{query_sources}" 
+      query_sources.each do |query_source|
+        output_arr << {:class => class_name, :stmt => query_source}
+      end
+    else
+      output_arr << query_obj
+    end 
+  end
+
+  scope_hash.each do |class_name, scopes|
+    scopes.each do |scope_name, scope_sources|
+      scope_sources.each do |scope_source|
+        output_arr << {:class => class_name, :stmt => scope_source}
+      end
+    end
+  end
+
+  output_arr
+end
+
+# parse queries and add metadata fields to query info object
+def process_queries(query_arr)
+  output = []
+  query_arr.each do |query_obj|
+    begin 
+      ast = YARD::Parser::Ruby::RubyParser.parse(query_obj[:stmt]).root 
+    rescue  
+      next
+    end
+    query_node = extract_query(ast) 
+    query_methods = get_all_methods(query_node)
+    base_object_type = infer_object_type(query_node)
+
     is_find = query_methods.include?("find")
 
-    raw_filter_fields = (query_methods.include?("where") or query_methods.include? ("find_by")) ? get_filter_fields(query) : []
-    raw_filter_fields += query_methods.include?("not") ? get_not_null(query) : []
-    raw_filter_fields += query_methods.include?("joins") ? derive_filters_from_joins(query, base_object_type) : []
-    raw_filter_fields += query_methods.include?("pluck") ? derive_pluck_values(query, base_object_type) : []
+    raw_filter_fields = (query_methods.include?("where") or query_methods.include? ("find_by")) ? get_filter_fields(query_node) : []
+    raw_filter_fields += query_methods.include?("not") ? get_not_null(query_node) : []
+    raw_filter_fields += query_methods.include?("joins") ? derive_filters_from_joins(query_node, base_object_type) : []
+    raw_filter_fields += query_methods.include?("pluck") ? derive_pluck_values(query_node, base_object_type) : []
 
     processed_filter_fields = {}
     raw_filter_fields.each do |filter|
@@ -248,6 +301,9 @@ def process_queries(query_arr)
   return output
 end
 
+MULTI_QUERY_METHODS = %w[where pluck distinct eager_load from group having includes joins left_outer_joins limit offset order preload readonly reorder select reselect select_all reverse_order unscope find_each rewhere].freeze
+SINGLE_QUERY_METHODS = %w[find find! take take! first first! last last! find_by find_by!].freeze
+
 # turn constraints into map
 def process_constraints(constraint_arr)
   output = {}
@@ -259,6 +315,72 @@ def process_constraints(constraint_arr)
     end
   end
   return output
+end
+
+def extract_scope_calls(node)
+  return [] if node == nil
+  if node.type == :call or node.type == :fcall
+    method_list = get_all_methods(node)
+	  if !((MULTI_QUERY_METHODS + SINGLE_QUERY_METHODS) & get_all_methods(node)).empty?
+      return [node.source]
+    else
+      return []
+    end
+  else
+    output = []
+    node.children.each do |child|
+      output += extract_scope_calls(child)
+    end
+    return output
+  end 
+
+end
+
+def process_scopes(scopes)
+  output = {}
+  # Phase 1: extract calls
+  scopes.each do |key, source|
+    class_name,scope_name = key.partition("-").values_at(0,2) 
+    ast = YARD::Parser::Ruby::RubyParser.parse(source).root
+    valid_calls = []
+    if ast.children.first.type == :fcall || ast.children.first.type == :call
+      valid_calls += [ast.children.first.source] 
+    elsif ast.children.last.type == :fcall or ast.children.last.type == :call 
+      valid_calls += [ast.children.last.source]
+    else
+      valid_calls += extract_scope_calls(ast)
+    end
+
+    output[class_name] = {} if !output[class_name]
+    output[class_name][scope_name] = valid_calls
+  end
+
+  # Phase 2: replace scope-within-scope calls
+  replaced_output = {}
+  output.each do |class_name, scopes|
+    replaced_output[class_name] = {}
+    scopes.each do |scope_name, sources|
+      replaced_output[class_name][scope_name] = []
+      sources.each do |call_source|
+        ast = YARD::Parser::Ruby::RubyParser.parse(call_source).root 
+        if ast.type == :list
+          ast = ast[0]
+        end
+        processed_call_source = call_source
+        referenced_scopes = get_all_methods(ast) & scopes.keys
+        if !referenced_scopes.empty?
+          referenced_scopes.each do |referenced_scope|
+            # TODO - handle case where a referenced scope has multiple sources
+            # (Right now we consider only the first source)
+            processed_call_source = processed_call_source.gsub(referenced_scope, output[class_name][referenced_scope][0]) 
+          end
+        end 
+        replaced_output[class_name][scope_name] << processed_call_source
+      end
+    end
+  end
+
+  return replaced_output
 end
 
 queries = [
@@ -283,8 +405,13 @@ queries = [
 
 app_name = ARGV[0]
 
-queries = load_queries(app_name)
-processed_queries = process_queries(queries) 
+queries,scopes = load_queries_and_scopes(app_name)
+processed_scopes = process_scopes(scopes) 
+preprocessed_queries = preprocess_queries(queries, processed_scopes) 
+processed_queries = process_queries(preprocessed_queries) 
+pp processed_queries.select{|query_obj| query_obj[:class] == "User"}
+exit(0)
+
 
 query_metadata = {
   :num_total => 0,
