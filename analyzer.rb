@@ -1,7 +1,6 @@
 require 'pp'
 require 'rails_best_practices'
 require 'yard'
-require 'pg_query'
 require 'active_support'
 
 APPS_DIR = "/Users/utsavsethi/workspace/apps" 
@@ -341,7 +340,11 @@ def process_scopes(scopes)
   # Phase 1: extract calls
   scopes.each do |key, source|
     class_name,scope_name = key.partition("-").values_at(0,2) 
-    ast = YARD::Parser::Ruby::RubyParser.parse(source).root
+	  begin
+      ast = YARD::Parser::Ruby::RubyParser.parse(source).root
+	  rescue
+      next
+    end
     valid_calls = []
     if ast.children.first.type == :fcall || ast.children.first.type == :call
       valid_calls += [ast.children.first.source] 
@@ -372,7 +375,7 @@ def process_scopes(scopes)
           referenced_scopes.each do |referenced_scope|
             # TODO - handle case where a referenced scope has multiple sources
             # (Right now we consider only the first source)
-            processed_call_source = processed_call_source.gsub(referenced_scope, output[class_name][referenced_scope][0]) 
+            processed_call_source = processed_call_source.gsub(referenced_scope, output[class_name][referenced_scope][0].to_s) 
           end
         end 
         replaced_output[class_name][scope_name] << processed_call_source
@@ -409,8 +412,6 @@ queries,scopes = load_queries_and_scopes(app_name)
 processed_scopes = process_scopes(scopes) 
 preprocessed_queries = preprocess_queries(queries, processed_scopes) 
 processed_queries = process_queries(preprocessed_queries) 
-pp processed_queries.select{|query_obj| query_obj[:class] == "User"}
-exit(0)
 
 
 query_metadata = {
