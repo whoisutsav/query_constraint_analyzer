@@ -74,6 +74,7 @@ def extract_null_fields_from_args(node)
       next if child[1].type != :var_ref or child[1][0].type != :kw and child[1][0][0] != "nil"
 
       key = extract_string(child[0])
+      next if key == nil # TODO rare case that happens in gitlab, find better fix 
       table = key.rpartition(".")[0]
       field = key.rpartition(".")[2] 
       output << {:table => table, :column => field, :is_not_null => true}
@@ -119,7 +120,7 @@ def extract_fields_from_args(node)
       output << {:table => table, :column => field, :is_not_null => false} 
     end
   elsif node[0][0].type == :string_literal
-    where_str = extract_string(node[0][0]).gsub(/\n/, "")
+    where_str = extract_string(node[0][0]).gsub(/\n/, "").gsub(/"/,"")
     raw_filters = where_str.split(/\s+and\s+|\s+or\s+/i).map(&:strip)
     
     raw_filters.each do |filter_str|
@@ -186,6 +187,8 @@ def get_filter_fields(node)
     return get_filter_fields(node[0]) + extract_fields_from_args(node[3]) 
   elsif node.type == :call
     return get_filter_fields(node[0])
+  elsif node.type == :fcall
+    return extract_fields_from_args(node[1]) 
   else
     return []
   end
@@ -215,7 +218,7 @@ def preprocess_queries(query_arr, scope_hash={})
     query_node = extract_query(ast) 
     next if !query_node
     query_methods = get_all_methods(query_node)
-    base_object_type = infer_object_type(query_node)
+	base_object_type = infer_object_type(query_node)
 
     #Replace any methods with scopes
     #puts "==================="
@@ -264,7 +267,10 @@ def process_queries(query_arr)
     end
     query_node = extract_query(ast) 
     query_methods = get_all_methods(query_node)
-    base_object_type = infer_object_type(query_node)
+	base_object_type = nil
+    if !(base_object_type = infer_object_type(query_node))
+      base_object_type = query_obj[:class]
+	end
 
     is_find = query_methods.include?("find")
 
@@ -287,6 +293,7 @@ def process_queries(query_arr)
     only_raw_sql = (raw_filter_fields.empty? and (query_methods.include?("where") or query_methods.include?("find_by_sql"))) 
 
     output << query_obj.dup.merge({
+      :query_methods => query_methods,
       :base_object_type => base_object_type,
       :is_find => is_find,
       :raw_filter_fields => raw_filter_fields,
@@ -386,6 +393,14 @@ def process_scopes(scopes)
   return replaced_output
 end
 
+
+
+#str = "editor.id > 0 AND editor.id != author.id AND post_id < ? or project.id = 3 and member_id IS NOT null and issue.user_id is null"
+#str = "\#{Member.table_name}.project_id = ?" 
+#where_sql_filters(str)
+
+app_name = ARGV[0]
+
 queries = [
 #  {:class => "ClassA", :stmt => "user = User.where(:remember_token => token).first"},
 #  {:class => "ClassB", :stmt => "User.find(session[\"user_id\"])\n"},
@@ -398,21 +413,17 @@ queries = [
 #  {:class => "ClassG", :stmt => "Tracker.joins(projects: :enabled_modules).where(\"\#{Project.table_name}.status <> ?\", STATUS_ARCHIVED).where(:enabled_modules => {:name => 'issue_tracking'}).distinct.sorted"},
 #  {:class => "ClassH", :stmt => "User.active.joins(:members, :cats).where(\"\#{Member.table_name}.project_id = ?\", id).distinct"},
 #  {:class => "ClassJ", :stmt => "User.where(\"editor.id > 0 AND editor.id != author.id AND post_id < ? or project.id = 3 and member_id IS NOT null and issue.user_id is null\")"},
-   {:class => "ClassK", :stmt => "ChildTheme.where(parent_theme_id: theme_id).distinct.pluck(:child_theme_id)"},
+#  {:class => "ClassK", :stmt => "ChildTheme.where(parent_theme_id: theme_id).distinct.pluck(:child_theme_id)"},
+#  {:class => "ClassL", :stmt => "User.where(\"username IS NOT NULL and created_at IS NOT NULL\")"} 
+  {:class=>"ApiOpenidConnectAuthorization", :stmt=>"where(o_auth_application: app, user: user).all"},
 ]
 
-
-#str = "editor.id > 0 AND editor.id != author.id AND post_id < ? or project.id = 3 and member_id IS NOT null and issue.user_id is null"
-#str = "\#{Member.table_name}.project_id = ?" 
-#where_sql_filters(str)
-
-app_name = ARGV[0]
+scopes = []
 
 queries,scopes = load_queries_and_scopes(app_name)
 processed_scopes = process_scopes(scopes) 
 preprocessed_queries = preprocess_queries(queries, processed_scopes) 
 processed_queries = process_queries(preprocessed_queries) 
-
 
 query_metadata = {
   :num_total => 0,
@@ -445,7 +456,8 @@ output = {
   :not_null_filter_on_field_with_presence_total => [],
   :not_null_filter_on_field_with_presence_no_index => [],
   :filter_on_unique_with_no_limit_total => [],
-  :filter_on_unique_with_no_limit_no_index => []
+  :filter_on_unique_with_no_limit_no_index => [],
+  :redundant_subquery => [],
 }
 
 processed_queries.each do |query_obj|
@@ -473,7 +485,7 @@ processed_queries.each do |query_obj|
 
     # check for not null filtering on field with presence constraint
     processed_constraints[object_type].select {|constraint| constraint[:type] == :presence}.each do |constraint|
-      if filters.select{|f| f[:is_not_null]}.map{|f| f[:column]}.include? constraint[:columns]
+      if filters.select{|f| f[:is_not_null]}.map{|f| f[:column]}.include? constraint[:fields]
         output[:not_null_filter_on_field_with_presence_total] << {:query => query_obj, :constraint => constraint}
         if !constraint[:exists_in_db]
           output[:not_null_filter_on_field_with_presence_no_index] << {:query => query_obj, :constraint => constraint}
@@ -491,6 +503,14 @@ processed_queries.each do |query_obj|
       end
     end 
   end
+
+  # check for duplicate references
+  downcased_singular_methods = query_obj[:query_methods].map{|str| ActiveSupport::Inflector.singularize(str).downcase}
+  dupe_methods = downcased_singular_methods.select{|str| !(["join", "left_outer_join", "merge", "reference", "include", "not"] + MULTI_QUERY_METHODS + SINGLE_QUERY_METHODS).include?(str) and downcased_singular_methods.count(str) > 1}
+  if !dupe_methods.empty?
+    output[:redundant_subquery] << {:query => query_obj, :constraint => nil, :dupes => dupe_methods.uniq}
+  end
+
 end
 
 puts "analyzer_output_count:" 
