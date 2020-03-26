@@ -1,4 +1,6 @@
-# Set up
+# Query constraint analyzer
+
+### Set up
 
 `gem install yard`
 
@@ -6,6 +8,6 @@
 
 Note: also make sure you also have other custom dependencies (formatchecker and rails_best_practices)
 
-# Run
+### Run
 
 `ruby main.rb PATH/TO/APP`
