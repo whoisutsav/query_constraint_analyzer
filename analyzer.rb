@@ -3,11 +3,6 @@ require 'rails_best_practices'
 require 'yard'
 require 'active_support'
 
-#APPS_DIR = "" 
-#CONSTRAINT_ANALYZER_DIR = ""
-#TEMP_OUTPUT_DIR = ""
-RAILS_BEST_PRACTICES_CMD = "rails_best_practices"
-
 config = YAML.load_file('config.yml')
 config.each do |key, value|
   if key == 'apps_dir' 
