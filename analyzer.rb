@@ -3,28 +3,43 @@ require 'rails_best_practices'
 require 'yard'
 require 'active_support'
 
-APPS_DIR = "/Users/utsavsethi/workspace/apps" 
-CONSTRAINT_ANALYZER_DIR = "/Users/utsavsethi/workspace/data-format-project/formatchecker/constraint_analyzer"
+#APPS_DIR = "" 
+#CONSTRAINT_ANALYZER_DIR = ""
+#TEMP_OUTPUT_DIR = ""
+RAILS_BEST_PRACTICES_CMD = "rails_best_practices"
+
+config = YAML.load_file('config.yml')
+config.each do |key, value|
+  if key == 'apps_dir' 
+    APPS_DIR = value
+  elsif key == 'constraint_analyzer_dir'
+    CONSTRAINT_ANALYZER_DIR = value
+  elsif key == 'temp_output_dir'
+    TEMP_OUTPUT_DIR = value
+  elsif key == 'rails_best_practices_cmd'
+	RAILS_BEST_PRACTICES_CMD = value
+  end
+end
 
 # return array of all statements containing queries in format
 # [{:class => "CLASSNAME", :stmt => "stmt containing query"}]
 def load_queries_and_scopes(app_name)
-  query_output_file = "/Users/utsavsethi/tmp/query_output_#{app_name}"
-  scope_output_file = "/Users/utsavsethi/tmp/scope_output_#{app_name}"
+  query_output_file = "#{TEMP_OUTPUT_DIR}/query_output_#{app_name}"
+  scope_output_file = "#{TEMP_OUTPUT_DIR}/scope_output_#{app_name}"
   app_dir = File.join(APPS_DIR, "/#{app_name}") 
   if !File.exist?(query_output_file) or !File.exist?(scope_output_file)
-    `cd #{app_dir} && echo "PrintQueryCheck: { output_filename_query: \"#{query_output_file}\", output_filename_scope: \"#{scope_output_file}\"}" &> ./config/rails_best_practices.yml && rails_best_practices . -c ./config/rails_best_practices.yml`
+    `cd #{app_dir} && echo "PrintQueryCheck: { output_filename_query: \"#{query_output_file}\", output_filename_scope: \"#{scope_output_file}\"}" &> ./config/rails_best_practices.yml && #{RAILS_BEST_PRACTICES_CMD} . -c ./config/rails_best_practices.yml`
   end
   return Marshal.load(File.binread(query_output_file)), Marshal.load(File.binread(scope_output_file)) 
 end
 
 def load_constraints(app_name)
-  output_file = "/Users/utsavsethi/tmp/constraint_output_#{app_name}"
+  constraint_output_file = "#{TEMP_OUTPUT_DIR}/constraint_output_#{app_name}"
   app_dir = File.join(APPS_DIR, "/#{app_name}") 
-  if !File.exist?(output_file)
-    `cd #{CONSTRAINT_ANALYZER_DIR} && ruby main.rb -a #{app_dir} --dump-constraints #{output_file}` 
+  if !File.exist?(constraint_output_file)
+    `cd #{CONSTRAINT_ANALYZER_DIR} && ruby main.rb -a #{app_dir} --dump-constraints #{constraint_output_file}` 
   end
-  return Marshal.load(File.binread(output_file))
+  return Marshal.load(File.binread(constraint_output_file))
 end
 
 def extract_query(ast)
