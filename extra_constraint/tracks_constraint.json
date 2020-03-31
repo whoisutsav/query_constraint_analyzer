@@ -1,0 +1,9 @@
+[
+{"table":"Dependency", "type":"custom", "fields":["predecessor_id","successor_id"], "source_code":"check_circular_dependencies"},
+{"table":"RecurringTodo", "type":"inclusion", "fields":["state"], "source_code":"aasm :column => :state"},
+{"table":"RecurringTodo", "type":"inclusion", "fields":["recurring_period"], "source_code":"%w[daily weekly monthly yearly].include?(recurring_period)"},
+{"table":"Context", "type":"inclusion", "fields":["state"], "source_code":"aasm :column => :state"},
+{"table":"Project", "type":"inclusion", "fields":["state"], "source_code":"aasm :column => :state"},
+{"table":"User", "type":"inclusion", "fields":["auth_type"], "source_code":"error if Tracks::Config.auth_schemes.include?(auth_type)"}
+]
+

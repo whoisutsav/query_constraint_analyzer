@@ -1,0 +1,4 @@
+apps_dir: ~/Documents/apps/
+constraint_analyzer_dir: /Users/utsavsethi/workspace/data-format-project/formatchecker/constraint_analyzer
+tmp_output_dir: ./tmp/
+rails_best_practices_cmd: rails_best_practices

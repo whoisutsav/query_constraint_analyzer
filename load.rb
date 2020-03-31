@@ -1,20 +1,25 @@
 require './types.rb'
+require 'json'
 
-
-def extract_queries_and_scopes(app_dir, output_dir)
+def extract_queries_and_scopes(app_dir, output_dir, rails_best_practices_cmd)
   app_name = File.basename(app_dir)
   query_output_file = File.join(output_dir, "query_output_#{app_name}")
   scope_output_file = File.join(output_dir, "scope_output_#{app_name}")
-  if !File.exist?(query_output_file) or !File.exist?(scope_output_file)
-    `cd #{app_dir} && echo "PrintQueryCheck: { output_filename_query: \"#{query_output_file}\", output_filename_scope: \"#{scope_output_file}\"}" &> ./config/rails_best_practices.yml && rails_best_practices . -c ./config/rails_best_practices.yml`
+  schema_output_file = File.join(output_dir, "schema_output_#{app_name}")
+  if !File.exist?(query_output_file) or !File.exist?(scope_output_file) or !File.exist?(schema_output_file)
+    `cd #{app_dir} && echo "PrintQueryCheck: { output_filename_query: \"#{query_output_file}\", output_filename_scope: \"#{scope_output_file}\", output_filename_schema: \"#{schema_output_file}\"}" &> ./config/rails_best_practices.yml && #{rails_best_practices_cmd} . -c ./config/rails_best_practices.yml`
   end
 
   queries = Marshal.load(File.binread(query_output_file)).map do |obj|
-    RawQuery.new(obj[:class], obj[:stmt]) 
+    RawQuery.new(obj[:class], obj[:stmt], false, obj[:caller_class_lst]) 
   end
   scopes = Marshal.load(File.binread(scope_output_file))
+	schema = Marshal.load(File.binread(schema_output_file)).map do |class_name, hmap|
+		#puts "table #{class_name}, fields = #{ hmap[:fields] }, assocs = #{hmap[:associations]}"
+    TableSchema.new(class_name, hmap[:fields], hmap[:associations]) 
+  end
 
-  return queries,scopes
+  return queries,scopes,schema
 end
 
 
@@ -91,6 +96,7 @@ end
 def process_queries(query_arr, scope_hash={})
   output_arr = []
   query_arr.each do |query_obj|
+    #puts "query obj = #{query_obj.inspect}"
     class_name = query_obj.class
     begin 
       ast = YARD::Parser::Ruby::RubyParser.parse(query_obj.stmt).root 
@@ -114,7 +120,7 @@ def process_queries(query_arr, scope_hash={})
         output
       end
       query_sources.each do |query_source|
-        output_arr << RawQuery.new(class_name, query_source, false)
+        output_arr << RawQuery.new(class_name, query_source, false, [])
       end
     else
       output_arr << query_obj
@@ -124,7 +130,7 @@ def process_queries(query_arr, scope_hash={})
   scope_hash.each do |class_name, scopes|
     scopes.each do |scope_name, scope_sources|
       scope_sources.each do |scope_source|
-        output_arr << RawQuery.new(class_name, scope_source, true)
+        output_arr << RawQuery.new(class_name, scope_source, true, [])
       end
     end
   end
@@ -138,14 +144,29 @@ def load_constraints(app_dir, output_dir, constraint_analyzer_dir)
   if !File.exist?(output_file)
     `cd #{constraint_analyzer_dir} && ruby main.rb -a #{app_dir} --dump-constraints #{output_file}` 
   end
-  return Marshal.load(File.binread(output_file)).map do |obj|
-    Constraint.new(obj[:table], obj[:type], obj[:fields], obj[:exists_in_db]) 
+  r = Marshal.load(File.binread(output_file)).map do |obj|
+    Constraint.new(obj[:table], obj[:type], obj[:fields], obj[:exists_in_db], nil) 
   end
+	r += load_extra_constraints(app_name)
+	r
+end
+
+def load_extra_constraints(app_name)
+	constraint_file = "./extra_constraint/#{app_name}_constraint.json"
+	r = []
+	if !File.exists?(constraint_file)
+		return r
+	end
+	extra_constraints = JSON.parse(File.read(constraint_file))
+	extra_constraints.each do |constraint|
+		r << Constraint.new(constraint["table"], constraint["type"], constraint["fields"], false, constraint["source_code"])
+	end
+	r
 end
 
 
-def load_queries(app_dir, output_dir)
-  queries,scopes = extract_queries_and_scopes(app_dir, output_dir)
+def load_queries_and_schema(app_dir, output_dir, rails_best_practices_cmd)
+  queries,scopes,schema = extract_queries_and_scopes(app_dir, output_dir, rails_best_practices_cmd)
   processed_scopes = process_scopes(scopes) 
-  return process_queries(queries, processed_scopes) 
+  return process_queries(queries, processed_scopes),schema 
 end
