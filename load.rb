@@ -96,8 +96,7 @@ end
 def process_queries(query_arr, scope_hash={})
   output_arr = []
   query_arr.each do |query_obj|
-    #puts "query obj = #{query_obj.inspect}"
-    class_name = query_obj.class
+    class_name = query_obj[:caller_class_lst][0][:class] #query_obj.class
     begin 
       ast = YARD::Parser::Ruby::RubyParser.parse(query_obj.stmt).root 
     rescue  
@@ -106,7 +105,7 @@ def process_queries(query_arr, scope_hash={})
     query_node = extract_query(ast) 
     next if !query_node
     methods = get_all_methods(query_node)
-	base_object_type = infer_object_type(query_node)
+		base_object_type = infer_object_type(query_node)
 
     found_scopes = scope_hash[base_object_type] ? methods & scope_hash[base_object_type].keys : []
     if !found_scopes.empty?
@@ -120,7 +119,7 @@ def process_queries(query_arr, scope_hash={})
         output
       end
       query_sources.each do |query_source|
-        output_arr << RawQuery.new(class_name, query_source, false, [])
+        output_arr << RawQuery.new(class_name, query_source, false, query_obj[:caller_class_lst])
       end
     else
       output_arr << query_obj

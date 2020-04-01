@@ -15,6 +15,9 @@ def run_analysis(app_name, app_dir, options)
   #exec("rm #{query_output_file}")
   raw_queries,schema = load_queries_and_schema(app_dir, options[:tmp_dir], options[:rails_best_practices_cmd])
   
+  #meta_queries = derive_metadata(raw_queries, schema) 
+  #exit
+
 	print_detail_with_sql(raw_queries, schema)
 	exit	
 

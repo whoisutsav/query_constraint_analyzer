@@ -13,12 +13,14 @@ def tablename_plural?(name)
 	name[0]==name[0].downcase
 end
 def tablename_pluralize(name)
+	return "" if name.nil? or name.length==0
 	tablename_plural?(name) ? name : class_str_to_table(name) 
 end
 def tablename_singular?(name)
 	name[0]==name[0].upcase
 end
 def tablename_singularize(name)
+	return "" if name.nil? or name.length==0
 	tablename_singular?(name)? name : table_str_to_class(name) 
 end
 
@@ -60,7 +62,7 @@ def get_fields_and_tables_for_query(components)
 			end
 		end
 	end
-	fields.uniq { |f| [f.table, f.column] }	
+	fields.uniq { |f| [tablename_pluralize(f.table), f.column] }	
 end
 
 def extract_query(ast)
@@ -102,10 +104,10 @@ def find_first_string_in_node(node)
 	""
 end
 
-def find_string_from_param(node)
+def find_string_from_param(source)
 	begin
 		open('__temp_ruby_code_buffer.rbout', 'w') { |f|
-  		f.puts "puts #{node.source}"
+  		f.puts "puts #{source}"
 		}
 		stdout, stderr, status = Open3.capture3("ruby __temp_ruby_code_buffer.rbout")
 		return stdout
@@ -130,6 +132,23 @@ def find_first_symbol_in_node(node)
 	""
 end
 
+# some adhoc method to fix issues in the sql query
+def sql_query_fix(sql)
+	# fix 1: #{Project.table_name} --> Project
+	if sql.include?('#')
+		sql = sql.gsub(/\#{(\W+)(\w+).table_name}/,'\2')
+	end
+	# fix 2: --> ?
+	if sql.include?('#')
+		sql = sql.gsub(/\#{[^}]+}/, '? ')
+	end
+	# fix 3: :lft --> ?
+	if sql.include?(':')
+		sql = sql.gsub(/:(\w+) /,'? ')
+	end
+	return sql
+end
+
 def parse_partial_predicate(query, table, call_ident)
 	base_table = tablename_pluralize(table)
 	sql = "SELECT #{base_table}.id FROM #{base_table} WHERE #{query}"
@@ -142,10 +161,26 @@ def parse_partial_predicate(query, table, call_ident)
 	end
 	begin
 		cols = PgQueryExtension.setup(PgQuery.parse(sql)).get_all_columns
-		return cols.map{ |x| QueryColumn.new(x[:table].nil? ? base_table : x[:table], x[:column]) }
+		return cols.map{ |x| QueryColumn.new(x[:table].nil? ? base_table : tablename_singularize(x[:table]), x[:column]) }
 	rescue => error
 		puts "QUERY \"#{sql}\" CANNOT PARSE! orig sql = #{query}"
 		puts error
+	end
+	[]
+end
+
+# try to parse the complete query after collecting all sql componenets and get all the missing columns
+def post_process_sql_string(sql, base_table)
+	base_table = tablename_pluralize(base_table)
+	sql = "SELECT #{base_table}.id FROM #{base_table} #{sql}"
+	begin
+		cols = PgQueryExtension.setup(PgQuery.parse(sql)).get_all_columns
+		return cols.map{ |x| QueryColumn.new(x[:table].nil? ? base_table : tablename_singularize(x[:table]), x[:column]) }
+	rescue => error
+		puts "-------"
+		puts "QUERY \"#{sql}\" CANNOT PARSE! orig sql = #{sql}"
+		puts error
+		puts "-------\n"
 	end
 	[]
 end
@@ -154,26 +189,41 @@ end
 def extract_query_string_from_param(call_ident, node, base_table)
 	return "",[] if node == nil or node.type != :arg_paren 
 	preds = []
-  if node[0][0].type == :list
+	if node[0][0].type == :list
 		fields = extract_fields_from_args(node)
 		fields.each do |field|
-			preds << QueryPredicate.new(QueryColumn.new(base_table, field[:column]), '=', '?')
+			preds << QueryPredicate.new(QueryColumn.new(field[:table].blank? ? base_table : field[:table], field[:column]), '=', '?')
 		end
 		return fields.map{ |x| "#{tablename_pluralize(base_table)}.#{x[:column]}=?" }.join(' AND '), preds
 	elsif node[0][0].type == :array
+		if node[0].nil? or node[0][0].nil? or node[0][0][0].nil? or node [0][0][0][0].nil?
+			return "",[]
+		end
 		array_node = node[0][0]
 		if array_node[0][0].type == :binary
-			# for find_by_sql case
-			sql = find_string_from_param(array_node[0][0])
+			# for cases of concatenating strings using '+'
+			sql = find_string_from_param(sql_query_fix(array_node[0][0].source))
 		else
-			sql = find_string_from_param(node[0][0][0])
+			sql = find_string_from_param(sql_query_fix(node[0][0][0].source))
 		end
+		preds = parse_partial_predicate(sql, base_table, call_ident)
+		return sql, preds
+	elsif node[0][0].type == :binary
+		sql = find_string_from_param(sql_query_fix(node[0][0].source))
 		preds = parse_partial_predicate(sql, base_table, call_ident)
 		return sql, preds
   elsif node[0][0].type == :string_literal or node[0][0].type == :call 
 		sql = find_first_string_in_node(node[0][0])
+		sql = sql_query_fix(sql)
 		preds = parse_partial_predicate(sql, base_table, call_ident)
 		return sql, preds
+	elsif node[0][0].type == :symbol_literal
+		node[0].each do |n|
+			if n.class.method_defined? "type" and n.type == :symbol_literal
+				preds << QueryColumn.new(base_table, n.source.gsub(/:/,''))
+			end
+		end
+		return "", preds
 	end
 end
 
@@ -219,16 +269,22 @@ def extract_query_string_from_call(call_ident, arg_node, prev_state)
 	elsif ["joins","left_outer_joins","includes","eager_load","preload"].include?(node[0].to_s) or associations.select { |ax| ax[:field]==node[0].to_s }.length > 0
 		is_explicit_join = ["joins","left_outer_joins","includes","eager_load","preload"].include?(node[0].to_s)
 		if str_param.blank?
-			column_symb = is_explicit_join ? find_first_symbol_in_node(node) : node[0].to_s
-			assoc = associations.select { |ax| ax[:field]==column_symb }
-			if !column_symb.nil? and assoc.length > 0
-				assoc = assoc[0]
-				assoc_db_table = tablename_pluralize(assoc[:class_name])
-				base_db_table = tablename_pluralize(base_table)
-				pk = assoc[:rel]=="has_many"? "#{base_db_table}.id" : "#{assoc_db_table}.id"
-				fk = assoc[:rel]=="has_many"? "#{assoc_db_table}.#{base_db_table.singularize}_id" : "#{base_db_table}.#{assoc_db_table.singularize}_id"
-				ret_str = " #{node[0]=='joins'? ' INNER':' LEFT OUTER'} JOIN #{assoc_db_table} ON #{pk} = #{fk}" 
-				components << QueryPredicate.new(QueryColumn.new(base_db_table, assoc[:rel]=="has_many"? pk : fk), '=', QueryColumn.new(assoc_db_table, assoc[:rel]=="has_many"? fk : pk))
+			column_symbs = is_explicit_join ? components.map{|xx| xx.column } : Array(node[0].to_s)
+			ret_str = ""
+			components = []
+			column_symbs.each do |column_symb|
+				assoc = associations.select { |ax| ax[:field]==column_symb }
+				if assoc.length > 0
+					assoc = assoc[0]
+					assoc_db_table = tablename_pluralize(assoc[:class_name])
+					base_db_table = tablename_pluralize(base_table)
+					pk = assoc[:rel]=="has_many"? "#{base_db_table}.id" : "#{assoc_db_table}.id"
+					fk = assoc[:rel]=="has_many"? "#{assoc_db_table}.#{base_db_table.singularize}_id" : "#{base_db_table}.#{assoc_db_table.singularize}_id"
+					ret_str += " #{node[0]=='joins'? ' INNER':' LEFT OUTER'} JOIN #{assoc_db_table} ON #{pk} = #{fk}" 
+					components << QueryPredicate.new(QueryColumn.new(base_table, assoc[:rel]=="has_many"? 'id' : "#{assoc_db_table.singularize}_id"), 
+						'=', 
+						QueryColumn.new(assoc[:class_name], assoc[:rel]=="has_many"? "#{base_db_table.singularize}_id" : 'id'))
+				end
 				if !is_explicit_join
 					base_table = assoc[:class_name]
 				end
@@ -240,10 +296,8 @@ def extract_query_string_from_call(call_ident, arg_node, prev_state)
 	# order
 	elsif node[0] == "order" or node[0] == "reorder"
 		if str_param.blank?
-			column_symb = find_first_symbol_in_node(arg_node)
-			if !column_symb.nil?
+			components.map{|xx| xx.column }.each do |column_symb|
 				ret_str = " ORDER BY #{column_symb}"
-				components << QueryColumn.new(base_table, column_symb)
 			end
 		else
 			ret_str = " ORDER BY #{str_param}"
@@ -252,10 +306,8 @@ def extract_query_string_from_call(call_ident, arg_node, prev_state)
 	# group
 	elsif node[0] == "group"
 		if str_param.blank?
-			column_symb = find_first_symbol_in_node(arg_node)
-			if !column_symb.nil?
+			components.map{|xx| xx.column }.each do |column_symb|
 				ret_str = " GROUP BY #{column_symb}"
-				components << QueryColumn.new(base_table, column_symb)
 			end
 		else
 			ret_str = " GROUP BY #{str_param}"
@@ -267,8 +319,8 @@ def extract_query_string_from_call(call_ident, arg_node, prev_state)
 		#components << QueryComponent.new(base_table, 1)
 
 	# pluck
-	#elsif ['pluck', 'select'].include?node[0].to_s
-	
+	elsif ['pluck', 'select'].include?node[0].to_s
+		#componenets << QueryColumn()
 
 	end
 	components.map { |x| 
@@ -294,21 +346,7 @@ def convert_to_query_string(node, prev_state)
 	return "",[],prev_state
 end
 
-# try to parse the complete query string and get all the missing columns
-def post_process_sql_string(sql, base_table)
-	base_table = tablename_pluralize(base_table)
-	sql = "SELECT #{base_table}.id FROM #{base_table} #{sql}"
-	begin
-		cols = PgQueryExtension.setup(PgQuery.parse(sql)).get_all_columns
-		return cols.map{ |x| QueryColumn.new(x[:table].nil? ? base_table : x[:table], x[:column]) }
-	rescue => error
-		puts "-------"
-		puts "QUERY \"#{sql}\" CANNOT PARSE! orig sql = #{sql}"
-		puts error
-		puts "-------\n"
-	end
-	[]
-end
+
 
 def parse_one_query(raw_query)
 	begin 
@@ -365,23 +403,48 @@ end
 def print_detail_with_sql(raw_queries, schema)
   output = []
 	$schema = schema
+	succ_cnt = 0
   raw_queries.each do |raw_query|
 		base_table = raw_query[:caller_class_lst].length==0 ? raw_query[:class]: raw_query[:caller_class_lst][0][:class]
 		if !is_valid_table?(base_table)
-			puts "query = #{raw_query.stmt}"
+			puts "query = #{raw_query.stmt} #{raw_query[:caller_class_lst]}"
 			puts "Table #{base_table} does not exist!"
 			next
 		end
     
+		puts "raw_query = #{raw_query.stmt}, base_table = #{base_table} "
 		meta = parse_one_query(raw_query) 
 
-		puts "raw_query = #{raw_query.stmt}, base_table = #{base_table} "
+
+		query_node = extract_query(ast)
+    methods = get_all_methods(query_node)
+		#puts "has_query? #{!query_node.blank?} methods = #{methods.inspect}"
+		base_object_type = nil
+    if !(base_object_type = infer_object_type(query_node))
+      base_object_type = raw_query.class
+		end
+
+    filters = (methods.include?("where") or methods.include? ("find_by")) ? get_filters(query_node) : []
+    filters += methods.include?("not") ? get_not_null(query_node) : []
+    filters += methods.include?("joins") ? derive_filters_from_joins(query_node, base_object_type) : []
+    filters += methods.include?("pluck") ? derive_pluck_values(query_node, base_object_type) : []
+    filters.map! {|filter| filter[:table].blank? ? filter.merge({:table => base_object_type}) : filter}
+		
+		puts "filters = #{filters.inspect}"
 		if !meta.sql.blank?
 			puts "\tparsed: query = #{meta.sql}"
 			puts "\tcomponents = #{(meta.fields.map {|xxx| xxx.table+":"+xxx.column}).join(', ')}"
+
+			if meta.fields.length > 1
+				succ_cnt += 1
+			end
 		else
 			puts "\tquery cannot be handled"
 		end
-  	puts ""
+		puts ""
+		# if raw_query.stmt.start_with?("changesets.where(:revision => identifiers).reorder(")
+		# 	exit
+		# end
 	end
+	#puts "success: #{succ_cnt} / total #{raw_queries.length} / filters #{filters}"
 end

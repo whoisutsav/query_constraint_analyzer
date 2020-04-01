@@ -208,7 +208,6 @@ def derive_metadata(raw_queries, schema)
 
     output << meta
   end
-
   return output
 end
 
