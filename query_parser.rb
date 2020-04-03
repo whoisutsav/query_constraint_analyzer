@@ -72,27 +72,6 @@ def get_not_null(node)
 end
 
 
-def extract_fields_from_args_for_join(base_table, node)
-  return [] if node == nil
-
-  output = []
-  if node.type == :list
-    node.each do |child|
-      next if !check_node_type(child, :assoc)
-      child.each do |c|
-        puts "c = #{c.inspect}"
-        if c.type == :symbol_literal
-          key = extract_string(c)
-          if !key.nil?
-            output << {:table => nil, :column => key}
-          end 
-        end
-      end
-    end
-  end
-  output
-end
-
 def extract_fields_from_args_for_where(node)
   return [] if node == nil
 
