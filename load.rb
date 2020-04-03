@@ -11,9 +11,19 @@ def extract_queries_and_scopes(app_dir, output_dir, rails_best_practices_cmd)
   end
 
   queries = Marshal.load(File.binread(query_output_file)).map do |obj|
-    RawQuery.new(obj[:class], obj[:stmt], false, obj[:caller_class_lst]) 
+    RawQuery.new(obj[:class], obj[:stmt], false, obj[:caller_class_lst], obj[:method_name]) 
   end
-  scopes = Marshal.load(File.binread(scope_output_file))
+
+  scopes = {} # key: class_name; value: {key: method_name, value: RawQuery}
+  queries.each do |obj|
+    next if obj[:method_name].blank?
+    if scopes[obj[:class]].nil?
+      scopes[obj[:class]] = {}
+    end
+    scopes[obj[:class]][obj[:method_name]] = obj
+  end
+
+  #scopes = Marshal.load(File.binread(scope_output_file)) 
 	schema = Marshal.load(File.binread(schema_output_file)).map do |class_name, hmap|
 		#puts "table #{class_name}, fields = #{ hmap[:fields] }, assocs = #{hmap[:associations]}"
     TableSchema.new(class_name, hmap[:fields], hmap[:associations]) 
@@ -25,6 +35,7 @@ end
 
 def extract_scope_calls(node)
   return [] if node == nil
+  pp node
   if node.type == :call or node.type == :fcall
     method_list = get_all_methods(node)
 	  if !((MULTI_QUERY_METHODS + SINGLE_QUERY_METHODS) & get_all_methods(node)).empty?
@@ -60,6 +71,8 @@ def process_scopes(scopes)
     else
       valid_calls += extract_scope_calls(ast)
     end
+    puts "Call: #{class_name}:#{scope_name} --> #{source} "
+    puts ""
 
     output[class_name] = {} if !output[class_name]
     output[class_name][scope_name] = valid_calls
@@ -105,7 +118,7 @@ def process_queries(query_arr, scope_hash={})
     query_node = extract_query(ast) 
     next if !query_node
     methods = get_all_methods(query_node)
-		base_object_type = infer_object_type(query_node)
+    base_object_type = query_obj[:caller_class_lst]
 
     found_scopes = scope_hash[base_object_type] ? methods & scope_hash[base_object_type].keys : []
     if !found_scopes.empty?
@@ -113,7 +126,9 @@ def process_queries(query_arr, scope_hash={})
         output = []
         query_sources.each do |query_source|
           scope_hash[base_object_type][found_scope].each do |scope_source|
+            puts "old source = #{query_source}"
             output << query_source.gsub(/#{found_scope}(?:\(.*?\))?/, scope_source)  
+            puts "new source = #{query_source.gsub(/#{found_scope}(?:\(.*?\))?/, scope_source)}"
           end 
         end
         output
@@ -166,6 +181,8 @@ end
 
 def load_queries_and_schema(app_dir, output_dir, rails_best_practices_cmd)
   queries,scopes,schema = extract_queries_and_scopes(app_dir, output_dir, rails_best_practices_cmd)
-  processed_scopes = process_scopes(scopes) 
-  return process_queries(queries, processed_scopes),schema 
+  #processed_scopes = process_scopes(scopes) 
+  #puts "processed scopes = #{processed_scopes.inspect}"
+  #return process_queries(queries, processed_scopes),schema 
+  return queries, scopes, schema
 end

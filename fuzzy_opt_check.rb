@@ -6,10 +6,10 @@ require './query_parser.rb'
 
 def fuzzy_check_for_constraint(query, fields, constraints, constraint_type, check_func)
 	found = []
-  constraints.select {|constraint| constraint_type.nil? or constraint.type.to_s == constraint_type.to_s}.each do |constraint|
+	constraints.select {|constraint| constraint_type.nil? or constraint.type.to_s == constraint_type.to_s}.each do |constraint|
 		if Array(constraint.fields).select { |f| 
-			fields.select { |qf| qf.table == constraint.table and qf.column == f }.any?
-		}.length == constraint.fields.length
+			fields.select { |qf| tablename_singularize(qf.table) == constraint.table and qf.column == f }.any?
+		}.length == Array(constraint.fields).length
 			if check_func.nil? or check_func.call(query, constraint)
 				found << {:query => query, :constraint => constraint}
 			end
@@ -26,9 +26,18 @@ def fuzzy_check(meta_queries, constraints)
 			!q.sql.include?"LIMIT" and q.has_limit==false
   	end)
 		print_result(r1, "Uniqueness opt:")
+
 		r2 = fuzzy_check_for_constraint(query, fields, constraints, :inclusion, nil)
 		print_result(r2, "Inclusion opt:")
-		r3 = fuzzy_check_for_constraint(query, fields, constraints, :presence, nil)
+
+		r3 = fuzzy_check_for_constraint(query, fields, constraints, :presence, Proc.new do |q, c|
+			true
+		end)
+		print_result(r3, "Presence opt:")
+
+		r4 = fuzzy_check_for_constraint(query, fields, constraints, :format, Proc.new do |q, c|
+			true
+		end)
 		print_result(r3, "Presence opt:")
 	end
 end

@@ -28,6 +28,16 @@ def extract_string(node)
   end
 end
 
+def is_valid_node?(node)
+  return node.class <= YARD::Parser::Ruby::AstNode
+end
+def check_node_type(node, type)
+  return node.class <= YARD::Parser::Ruby::AstNode && node.type == type
+end
+def check_node_in_types(node, types)
+  return node.class <= YARD::Parser::Ruby::AstNode && types.include?(node.type)
+end
+
 def extract_null_fields_from_args(node)
   return [] if node == nil or node.type != :arg_paren
 
@@ -61,13 +71,35 @@ def get_not_null(node)
   end
 end
 
-def extract_fields_from_args(node)
-  return [] if node == nil or node.type != :arg_paren 
+
+def extract_fields_from_args_for_join(base_table, node)
+  return [] if node == nil
 
   output = []
-  if node[0][0].type == :list
-    node[0][0].each do |child|
-      next if child.type != :assoc
+  if node.type == :list
+    node.each do |child|
+      next if !check_node_type(child, :assoc)
+      child.each do |c|
+        puts "c = #{c.inspect}"
+        if c.type == :symbol_literal
+          key = extract_string(c)
+          if !key.nil?
+            output << {:table => nil, :column => key}
+          end 
+        end
+      end
+    end
+  end
+  output
+end
+
+def extract_fields_from_args_for_where(node)
+  return [] if node == nil
+
+  output = []
+  if node.type == :list
+    node.each do |child|
+      next if !check_node_type(child, :assoc)
 
       key = extract_string(child[0])
       return [] if key == nil # TODO - handle this in future (although case seems rare)
@@ -83,8 +115,15 @@ def extract_fields_from_args(node)
       end
       output << {:table => table, :column => field, :is_not_null => false} 
     end
-  elsif node[0][0].type == :string_literal
-    where_str = extract_string(node[0][0]).gsub(/\n/, "").gsub(/"/,"")
+  end
+  return output.uniq
+end
+
+def extract_fields_from_args(node)
+  return [] if node == nil
+  output = []
+  if node.type == :string_literal
+    where_str = extract_string(node).gsub(/\n/, "").gsub(/"/,"")
     raw_filters = where_str.split(/\s+and\s+|\s+or\s+/i).map(&:strip)
     
     raw_filters.each do |filter_str|
@@ -95,9 +134,10 @@ def extract_fields_from_args(node)
       column = column.strip
       output << {:table => table, :column => column, :is_not_null => is_not_null}
     end
+  else 
+    return extract_fields_from_args_for_where(node)
   end
-
-  return output.uniq
+  output.uniq
 end
 
 # TODO - handle multiple joins
@@ -149,11 +189,11 @@ def get_filters(node)
 
 	#pp node
   if node.type == :call and node[2].type == :ident and (node[2][0] == "where" or node[2][0] == "not" or node[2][0] == "find_by") 
-    return get_filters(node[0]) + extract_fields_from_args(node[3]) 
+    return get_filters(node[0]) + extract_fields_from_args(node[3][0][0]) 
   elsif node.type == :call
     return get_filters(node[0])
   elsif node.type == :fcall
-    return extract_fields_from_args(node[1]) 
+    return extract_fields_from_args(node[1][0][0]) 
   else
     return []
   end
@@ -208,6 +248,7 @@ def derive_metadata(raw_queries, schema)
 
     output << meta
   end
+  puts "succ = #{output.map{|x| x.filters.length>0 ? 1 : 0 }.sum} / total #{raw_queries.length}"
   return output
 end
 

@@ -13,15 +13,16 @@ app_dir = ""
 def run_analysis(app_name, app_dir, options)
   #query_output_file = File.join(options[:tmp_dir], "query_output_#{app_name}")
   #exec("rm #{query_output_file}")
-  raw_queries,schema = load_queries_and_schema(app_dir, options[:tmp_dir], options[:rails_best_practices_cmd])
+  raw_queries, scopes, schema = load_queries_and_schema(app_dir, options[:tmp_dir], options[:rails_best_practices_cmd])
   
   #meta_queries = derive_metadata(raw_queries, schema) 
   #exit
 
-	print_detail_with_sql(raw_queries, schema)
+  print_detail_with_sql(raw_queries, scopes, schema)
+  #meta_queries = derive_metadata_with_sql(raw_queries, scopes, schema) 
 	exit	
 
-	meta_queries = derive_metadata_with_sql(raw_queries, schema) 
+	meta_queries = derive_metadata_with_sql(raw_queries, scopes, schema) 
 	constraints = load_constraints(app_dir, options[:tmp_dir], options[:constraint_analyzer_dir])
 	fuzzy_check(meta_queries, constraints)
 
