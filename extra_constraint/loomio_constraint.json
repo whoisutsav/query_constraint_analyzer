@@ -1,0 +1,9 @@
+[
+{"table":"Discussion", "type":"presence", "fields":["private"], "source_code":""},
+{"table":"Group", "type":"inclusion", "fields":["discussion_privacy_options"], "source_code":""},
+{"table":"Discussion", "type":"custom", "fields":["Group.discussion_privacy_options","private"], "source_code":"error if self.public? and group.private_discussions_only?"},
+{"table":"Discussion", "type":"custom", "fields":["Group.discussion_privacy_options","public"], "source_code":"error if self.public? and group.public_discussions_only?"},
+{"table":"MembershipRequest", "type":"uniqueness", "fields":["requestor_id","responder_id"], "source_code":""},
+{"table":"Discussion", "type":"custom", "fields":["group_id","guest_group_id"], "source_code":"not overlap"},
+{"table":"Poll", "type":"custom", "fields":["group_id","guest_group_id"], "source_code":"not overlap"}
+]

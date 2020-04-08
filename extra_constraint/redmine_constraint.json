@@ -1,0 +1,23 @@
+[
+{"table":"IssueCustomField", "type":"custom", "fields":["roles","visible"], "source_code":"error unless visible? || roles.present?"},
+{"table":"CustomField","type":"custom","fields":["searchable"],"source_code":"self.searchable=false unless format.class.searchable_supported"},
+{"table":"CustomField","type":"custom","fields":["multiple"],"source_code":"self.multiple=false unless format.class.multiple_supported"},
+{"table":"Watcher","type":"presence","fields":["user_id"],"source_code":"errors unless user.nil? || user.active"},
+{"table":"Repository","type":"url","fields":["format"],"source_code":"validate_repository_path"},
+{"table":"Issue","type":"assigned_to","fields":["presence"],"source_code":"default_assign"},
+{"table":"IssueRelation","type":"custom","fields":["issue_from_id","issue_to_id"],"source_code":"error if issue_from_id == issue_to_id"},
+{"table":"WikiPage","type":"custom","fields":["parent_id","title"],"source_code":"error if !@parent_title.blank? && parent.nil?"},
+{"table":"WikiPage","type":"custom","fields":["parent_id","wiki_id"],"source_code":"error if parent && (parent.wiki_id != wiki_id"},
+{"table":"IssueRelation","type":"custom","fields":["issue_from_id","issue_to_id","project_id"],"source_code":"error if issue_from.project_id!=issue_to.project_id"},
+{"table":"MemberRole","type":"custom","fields":["member_id","role_id"],"source_code":"member.rb: error if member_roles.empty? && roles.empty?"},
+{"table":"WorkflowPermission","type":"format","fields":["field_name"],"source_code":"Tracker::CORE_FIELDS_ALL.include?(field_name) || /^\d+$/.match?(field_name.to_s)"},
+{"table":"TimeEntry","type":"presence","fields":["project_id"],"source_code":"error if project.nil?"},
+{"table":"TimeEntry","type":"custom","fields":["project_id","issue_id"],"source_code":"error if issue && project!=issue.project"},
+{"table":"Version","type":"inclusion","fields":["sharing"],"source_code":""},
+{"table":"Version","type":"inclusion","fields":["status"],"source_code":""},
+{"table":"Project","type":"inclusion","fields":["status"],"source_code":""},
+{"table":"Project","type":"custom","fields":["lft","rgt","id"],"source_code":""},
+{"table":"Changeset","type":"uniqueness","fields":["revision","repository_id"],"source_code":""},
+{"table":"Version","type":"presence","fields":["name"],"source_code":""},
+{"table":"Version","type":"uniqueness","fields":["name","project_id"],"source_code":""}
+]

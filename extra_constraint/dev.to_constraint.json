@@ -1,0 +1,18 @@
+[
+{"table":"ClassifiedListing", "type":"inclusion", "fields":["category"], "source_code":"error unless CATEGORIES_AVAILABLE[category]"},
+{"table":"Reaction", "type":"custom", "fields":["reactable_type","reactable_id"], "source_code":"if reactable_type == 'Article' && !reactable&.published"},
+{"table":"ClassifiedListing", "type":"format", "fields":["body_markdown"], "source_code":"restrict_markdown_input"},
+{"table":"Article", "type":"custom", "fields":["collection_id","Collection.user_id","user_id"], "source_code":"if collection && collection.user_id != user_id"},
+{"table":"Article", "type":"custom", "fields":["published","video_state"], "source_code":"error if published && video_state == 'PROGRESSING'"},
+{"table":"Article", "type":"format", "fields":["canonical_url"], "source_code":"error if canonical_url.to_s.match?(/[[:space:]]/)"},
+{"table":"Tag", "type":"custom", "fields":["alias_for","name"], "source_code":"error if !Tag.exists?(name: alias_for)"},
+{"table":"Tag", "type":"format", "fields":["name"], "source_code":"error if name.length > 30 || unless name.match?(/\A[[:alnum:]]+\z/)"},
+{"table":"Organization", "type":"custom", "fields":["slug","User.username"], "source_code":"error if User.find_by(username: slug)"},
+{"table":"Organization", "type":"custom", "fields":["slug","Page.slug"], "source_code":"error if Page.find_by(slug: slug)"},
+{"table":"Organization", "type":"custom", "fields":["slug","Podcast.slug"], "source_code":"error if Podcast.find_by(slug: slug)"},
+{"table":"Event", "type":"custom", "fields":["ends_at","starts_at"], "source_code":"error if ends_at < starts_at"},
+{"table":"User", "type":"custom", "fields":["username","BanishedUser.username"], "source_code":"error if BanishedUser.exists?(username: username)"},
+{"table":"User", "type":"custom", "fields":["username","Organization.slug"], "source_code":"error if Organization.find_by(slug: username)"},
+{"table":"User", "type":"custom", "fields":["username","Podcast.slug"], "source_code":"error if Podcast.find_by(slug: username)"},
+{"table":"User", "type":"custom", "fields":["username","Page.slug"], "source_code":"error if Page.find_by(slug: username)"}
+]

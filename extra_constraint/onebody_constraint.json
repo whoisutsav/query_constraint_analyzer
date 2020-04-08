@@ -1,0 +1,14 @@
+[
+{"table":"Membership", "type":"format", "fields":["roles"], "source_code":"errors if roles.any? { |r| r !~ /\A[a-z0-9 \-_\(\)]+\z/i }"},
+{"table":"Group", "type":"format", "fields":["address"], "source_code":"validates_format_of :address, with: /\A[a-zA-Z0-9]+\z/, allow_nil: true"},
+{"table":"MembershipRequest", "type":"uniqueness", "fields":["group_id","person_id"], "source_code":"error if Membership.where(group_id: group_id, person_id: person_id).first"},
+{"table":"Person", "type":"format", "fields":["email"], "source_code":"format: { with: VALID_EMAIL_ADDRESS }, allow_nil: true, allow_blank: true"},
+{"table":"Person", "type":"format", "fields":["business_email"], "source_code":"format: { with: VALID_EMAIL_ADDRESS }, allow_nil: true, allow_blank: true"},
+{"table":"Person", "type":"format", "fields":["alternate_email"], "source_code":"format: { with: VALID_EMAIL_ADDRESS }, allow_nil: true, allow_blank: true"},
+{"table":"Person", "type":"uniqueness", "fields":["email","family_id","deleted"], "source_code":""},
+{"table":"Person", "type":"presence", "fields":["family_id"], "source_code":"validates_associated :family"},
+{"table":"FriendshipRequest", "type":"custom", "fields":["person_id","Person.email"], "source_code":"error unless person && person.email.present?"},
+{"table":"FriendshipRequest", "type":"custom", "fields":["person_id","Person.friends_enabled"], "source_code":"error unless person && person.friends_enabled"},
+{"table":"Family", "type":"custom", "fields":["barcode_id","alternate_barcode_id"], "source_code":"error if record.barcode_id == record.alternate_barcode_id"},
+{"table":"Family", "type":"custom", "fields":["barcode_id","alternate_barcode_id"], "source_code":"error if Family.where(alternate_barcode_id: record.barcode_id).exists? || Family.where(barcode_id: record.alternate_barcode_id).exists?"}
+]

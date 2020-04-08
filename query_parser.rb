@@ -32,7 +32,7 @@ def is_valid_node?(node)
   return node.class <= YARD::Parser::Ruby::AstNode
 end
 def check_node_type(node, type)
-  return node.class <= YARD::Parser::Ruby::AstNode && node.type == type
+  return !node.nil? && node.class <= YARD::Parser::Ruby::AstNode && node.type == type
 end
 def check_node_in_types(node, types)
   return node.class <= YARD::Parser::Ruby::AstNode && types.include?(node.type)

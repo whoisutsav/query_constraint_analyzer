@@ -1,5 +1,7 @@
 require './types.rb'
 require 'json'
+require './util.rb'
+
 
 def extract_queries_and_scopes(app_dir, output_dir, rails_best_practices_cmd)
   app_name = File.basename(app_dir)
@@ -11,22 +13,26 @@ def extract_queries_and_scopes(app_dir, output_dir, rails_best_practices_cmd)
   end
 
   queries = Marshal.load(File.binread(query_output_file)).map do |obj|
-    RawQuery.new(obj[:class], obj[:stmt], false, obj[:caller_class_lst], obj[:method_name]) 
+    RawQuery.new(canonicalize_classname(obj[:class]), obj[:stmt], false, 
+              obj[:caller_class_lst].map! {|x|
+                                  x[:class_name]=canonicalize_classname(x[:class_name].to_s)
+                                          x }.to_a, 
+                  obj[:method_name]) 
   end
 
   scopes = {} # key: class_name; value: {key: method_name, value: RawQuery}
   queries.each do |obj|
     next if obj[:method_name].blank?
-    if scopes[obj[:class]].nil?
-      scopes[obj[:class]] = {}
+    classname = canonicalize_classname(obj[:class])
+    if scopes[classname].nil?
+      scopes[classname] = {}
     end
-    scopes[obj[:class]][obj[:method_name]] = obj
+    scopes[classname][obj[:method_name]] = obj
   end
 
   #scopes = Marshal.load(File.binread(scope_output_file)) 
-	schema = Marshal.load(File.binread(schema_output_file)).map do |class_name, hmap|
-		#puts "table #{class_name}, fields = #{ hmap[:fields] }, assocs = #{hmap[:associations]}"
-    TableSchema.new(class_name, hmap[:fields], hmap[:associations]) 
+  schema = Marshal.load(File.binread(schema_output_file)).map do |klass, hmap|
+    TableSchema.new(klass, hmap[:fields], hmap[:associations]) 
   end
 
   return queries,scopes,schema

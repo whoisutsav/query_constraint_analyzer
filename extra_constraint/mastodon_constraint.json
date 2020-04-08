@@ -1,0 +1,4 @@
+[
+{"table":"PollVote", "type":"custom", "fields":["poll_id","Poll.multiple","account"], "source_code":""},
+{"table":"PollVote", "type":"custom", "fields":["poll_id","Poll.expires_at"], "source_code":"error if vote.poll.expires?"}
+]

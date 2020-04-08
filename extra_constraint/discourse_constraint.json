@@ -1,0 +1,19 @@
+[
+{"table":"ChildTheme", "type":"custom", "fields":["parent_theme_id","component"], "source_code":"error if Theme.where(componenet iS TRUE and id = self.parent_theme_id"},
+{"table":"ChildTheme", "type":"custom", "fields":["child_theme_id","component"], "source_code":"error if Theme.where(componenet iS TRUE and id = self.child_theme_id"},
+{"table":"Category", "type":"custom", "fields":["parent_category_id","id"], "source_code":"error if parent_category_id == id"},
+{"table":"Category", "type":"custom", "fields":["parent_category_id","id"], "source_code":"error if Category.where(id: parent_category_id).pluck(:parent_category_id).first"},
+{"table":"SkippedEmailLog", "type":"custom", "fields":["custom_reason","reason_type"], "source_code":"validates :custom_reason, presence: true, if is_custom? else absence: true"},
+{"table":"SkippedEmailLog", "type":"inclusion", "fields":["reason_type"], "source_code":""},
+{"table":"PostReply", "type":"", "fields":["topic_id","reply_id","Post.topic_id"], "source_code":"error if post.topic_id!=reply.topic_id"},
+{"table":"Group", "type":"format", "fields":["name"], "source_code":"name_format_validator"},
+{"table":"Group", "type":"format", "fields":["incoming_email"], "source_code":"incoming_email_validator"},
+{"table":"Group", "type":"custom", "fields":["GroupUser.owner","persisted"], "source_code":""},
+{"table":"Group", "type":"custom", "fields":["grant_trust_level"], "source_code":"grant_trust_level's range in (0..4)"},
+{"table":"ColorScheme", "type":"presence", "fields":["color_scheme_colors"], "source_code":"validates_associated :color_scheme_colors"},
+{"table":"Theme", "type":"custom", "fields":["component","color_scheme_id"], "source_code":"return unless component; error if color_scheme_id.present?"},
+{"table":"Theme", "type":"custom", "fields":["component","user_selectable"], "source_code":"return unless component; error if user_selectable"},
+{"table":"Theme", "type":"custom", "fields":["component","default"], "source_code":"return unless component; error if default"},
+{"table":"User", "type":"format", "fields":["username"], "source_code":""},
+{"table":"UserEmail", "type":"custom", "fields":["email"], "source_code":"unique_email: error if self.class.where('lower(email)=?',email).exists?"}
+]
