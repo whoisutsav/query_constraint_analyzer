@@ -17,7 +17,7 @@ def extract_queries_and_scopes(app_dir, output_dir, rails_best_practices_cmd)
               obj[:caller_class_lst].map! {|x|
                                   x[:class_name]=canonicalize_classname(x[:class_name].to_s)
                                           x }.to_a, 
-                  obj[:method_name]) 
+                  obj[:method_name], obj[:filename]) 
   end
 
   scopes = {} # key: class_name; value: {key: method_name, value: RawQuery}
@@ -172,8 +172,22 @@ def load_constraints(app_dir, output_dir, constraint_analyzer_dir)
 end
 
 def load_extra_constraints(app_name)
+  r = []
+  constraint_file = "./extra_constraint/inclusion.csv"
+  start_processing = false
+  File.open(constraint_file).read.each_line do |line|
+    words = line.gsub(/[\r\n]+/,'').split(',')
+    if words[1].nil?
+      if words[0]==app_name
+        start_processing = true
+      else
+        start_processing = false
+      end
+    elsif start_processing
+      r << Constraint.new(words[0], :inclusion, [words[1]], false, '')
+    end
+  end
 	constraint_file = "./extra_constraint/#{app_name}_constraint.json"
-	r = []
 	if !File.exists?(constraint_file)
 		return r
 	end

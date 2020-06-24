@@ -1,4 +1,4 @@
-RawQuery = Struct.new(:class, :stmt, :from_scope, :caller_class_lst, :method_name)
+RawQuery = Struct.new(:class, :stmt, :from_scope, :caller_class_lst, :method_name, :filename)
 
 MetaQuery = Struct.new(:raw_query, :methods, :base_object_type,
                         :filters, :has_distinct, :has_limit)

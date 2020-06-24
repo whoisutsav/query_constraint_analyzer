@@ -10,14 +10,6 @@ MULTI_QUERY_METHODS = %w[where pluck distinct eager_load from group having inclu
 SINGLE_QUERY_METHODS = %w[find find! take take! first first! last last! find_by find_by!].freeze
 
 
-def table_str_to_class(str)
-  ActiveSupport::Inflector.camelize(ActiveSupport::Inflector.singularize(str)) 
-end
-
-def class_str_to_table(str)
-  ActiveSupport::Inflector.tableize(str) 
-end
-
 def extract_string(node)
   if node.type == :string_literal 
     return node.source
