@@ -48,7 +48,7 @@ def dump_constraints(app_name, app_dir, options)
       next
     end
     if c[:type] == :uniqueness
-      dump_constraints << "Constraint(#{c[:table]}, unique([#{c[:fields].join(', ')}])"
+      dump_constraints << "Constraint(#{c[:table]}, unique([#{c[:fields].join(', ')}]))"
     elsif c[:type] == :presence
       assoc = find_table_in_schema(c[:table], schema).associations.select { |ax| ax[:field]==c[:fields][0] }
       if assoc.length() > 0
@@ -57,7 +57,7 @@ def dump_constraints(app_name, app_dir, options)
         field = Array(c[:fields])[0]
       end
       dump_constraints << "Constraint(#{c[:table]}, presence(#{field}))"
-    elsif c[:type] == :custom
+    elsif c[:type] == "custom"
       expr = c[:source]
       dump_constraints << "Constraint(#{c[:table]}, #{expr})"
     end

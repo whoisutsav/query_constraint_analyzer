@@ -19,16 +19,17 @@ def run_analysis(app_name, app_dir, options)
   #meta_queries = derive_metadata(raw_queries, schema) 
   #exit
 
-  #print_detail_with_sql(raw_queries, scopes, schema)
-  #exit	
+  print_detail_with_sql(raw_queries, scopes, schema)
+  exit	
 
-	meta_queries = derive_metadata_with_sql(raw_queries, scopes, schema) 
-  constraints = load_constraints(app_dir, options[:tmp_dir], options[:constraint_analyzer_dir])
+  #meta_queries = derive_metadata_with_sql(raw_queries, scopes, schema) 
+  
+  #constraints = load_constraints(app_dir, options[:tmp_dir], options[:constraint_analyzer_dir])
   # constraints.each do |c|
   #   puts "table = #{c[:table]}, type = #{c[:type]}, fields = #{c[:fields]}, in_db = #{c[:exists_in_db]}"
   # end
   # exit
-	fuzzy_check(meta_queries, constraints)
+	#fuzzy_check(meta_queries, constraints)
 
 end
 
