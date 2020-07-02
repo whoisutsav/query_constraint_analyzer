@@ -175,7 +175,7 @@ def parse_partial_predicate(query, table, call_ident)
 	[]
 end
 
-# try to parse the complete query after collecting all sql componenets and get all the missing columns
+# try to parse the complete query after collecting all sql components and get all the missing columns
 def post_process_sql_string(sql, base_table)
 	base_table = tablename_pluralize(base_table)
 	sql = "SELECT #{base_table}.id FROM #{base_table} #{sql}"
@@ -367,7 +367,8 @@ def extract_query_string_from_call(call_ident, arg_node, prev_state)
 	# find (by id)
 	elsif node[0].to_s == "find"
 		ret_str = " #{prev_contains_where(prev_state) ? 'AND' : 'WHERE'} id = ?"
-		components << QueryColumn.new(base_table, "id")
+		#components << QueryColumn.new(base_table, "id")
+		components << QueryPredicate.new(QueryColumn.new(base_table, "id"), '=', '?')
 
 	# find_by_sql
 	elsif node[0] == "find_by_sql"
@@ -394,7 +395,7 @@ def extract_query_string_from_call(call_ident, arg_node, prev_state)
 		if str_param.blank?
 			columns = is_explicit_join ? get_fields_and_tables_for_query(components) : [QueryColumn.new(base_table, node[0].to_s)]
 			ret_str = ""
-			#puts "JOIN componenets = #{components}"
+			#puts "JOIN components = #{components}"
 			components = []
 			columns.each do |column|
 				column_symb = column.column
@@ -410,9 +411,25 @@ def extract_query_string_from_call(call_ident, arg_node, prev_state)
 					pk = assoc[:rel]=="has_many"? "#{base_db_table}.id" : "#{assoc_db_table}.id"
 					fk = assoc[:rel]=="has_many"? "#{assoc_db_table}.#{base_db_table.singularize}_id" : "#{base_db_table}.#{assoc_db_table.singularize}_id"
 					ret_str += " #{node[0]=='joins'? ' INNER':' LEFT OUTER'} JOIN #{assoc_db_table} ON #{pk} = #{fk}" 
-					components << QueryPredicate.new(QueryColumn.new(base_table, assoc[:rel]=="has_many"? 'id' : "#{assoc_db_table.singularize}_id"), 
-						'=', 
-						QueryColumn.new(assoc[:class_name], assoc[:rel]=="has_many"? "#{base_db_table.singularize}_id" : 'id'))
+					# components << QueryPredicate.new(QueryColumn.new(base_table, assoc[:rel]=="has_many"? 'id' : "#{assoc_db_table.singularize}_id"), 
+					# 	'=', 
+					# 	QueryColumn.new(assoc[:class_name], assoc[:rel]=="has_many"? "#{base_db_table.singularize}_id" : 'id'))
+					if is_explicit_join
+						if ["includes","eager_load","preload"].include?(node[0].to_s)
+							join_meth =  'includes'
+						elsif ["left_outer_joins"].include?(node[0].to_s)
+							join_meth = 'left_outer_joins' 
+						else
+							join_meth = 'joins'
+						end
+						components << QueryColumn.new(base_table, assoc[:field], join_meth)
+					else
+						if assoc[:rel]=="has_many"
+							components << QueryPredicate.new(QueryColumn.new(assoc[:class_name], "#{base_db_table.singularize}_id"), '=', '?')
+						else
+							components << QueryPredicate.new(QueryColumn.new(assoc[:class_name], "id"), '=', '?')
+						end
+					end
 					# if assoc[:rel] == "has_many" || assoc[:rel] == "has_and_belongs_to_many"
 					# 	components << QueryColumn.new(base_table, column_symb)
 					# end
@@ -428,44 +445,67 @@ def extract_query_string_from_call(call_ident, arg_node, prev_state)
 		end
 
 	# order
-	elsif node[0] == "order" or node[0] == "reorder"
-		if str_param.blank?
-			get_fields_and_tables_for_query(components).map{|xx| xx.column }.each do |column_symb|
-				ret_str = " ORDER BY #{column_symb}"
-			end
-		else
-			ret_str = " ORDER BY #{str_param}"
+	elsif ['order',"reorder"].include?(node[0].to_s)
+		symbs = []
+		get_fields_and_tables_for_query(components).map{|xx| xx.column }.uniq.each do |column_symb|
+			ret_str = " ORDER BY #{column_symb}"
+			symbs << column_symb
 		end
+		components << QueryColumn.new(base_table, symbs.join(', '), 'order')
+		
 
 	# group
-	elsif node[0] == "group"
-		if str_param.blank?
-			get_fields_and_tables_for_query(components).map{|xx| xx.column }.each do |column_symb|
-				ret_str = " GROUP BY #{column_symb}"
-			end
-		else
-			ret_str = " GROUP BY #{str_param}"
+	elsif ['group','groupby'].include?(node[0].to_s)
+		symbs = []
+		get_fields_and_tables_for_query(components).map{|xx| xx.column }.uniq.each do |column_symb|
+			ret_str = " GROUP BY #{column_symb}"
+			symbs << column_symb
 		end
+		components << QueryColumn.new(base_table, symbs.join(', '), 'group')
 
 	# first
-	elsif ['first','first!','exists','exists?','take'].include?node[0].to_s
+	elsif ['first','first!','exists','exists?','take','last','last!'].include?(node[0].to_s)
 		ret_str = " LIMIT 1"
-		#components << QueryComponent.new(base_table, 1)
+		components<< QueryComponent.new("return_limit", "1")
+
+	# limit
+	elsif ['limit'].include?(node[0].to_s)
+		components<< QueryComponent.new("return_limit", str_param)
 
 	# pluck
-	elsif ['pluck', 'select'].include?node[0].to_s
-		#componenets << QueryColumn()
+	elsif ['pluck', 'select', 'try'].include?(node[0].to_s)
+		if str_param.blank?
+			get_fields_and_tables_for_query(components).map{|xx| xx.column }.each do |column_symb|
+				components << QueryColumn.new(base_table, column_symb, 'select')
+			end
+		else
+			components << QueryColumn.new(base_table, str_param, 'select')
+		end
+
+	# field
+	elsif table_schema.fields.include?(node[0].to_s)
+		components << QueryColumn.new(base_table, node[0].to_s, 'select')
+
+	# distinct
+	elsif ['distinct','uniq'].include?(node[0].to_s)
+		components << QueryComponent.new('distinct')
+	
+	elsif ['compact'].include?(node[0].to_s)
+		components << QueryPredicate.new(QueryColumn.new(base_table, 'id'), "!=", "0")
+	# collect = project
+	elsif ['collect'].include?(node[0].to_s)
+		# TODO
 
 	# scope...
 	elsif find_scope(base_table, node[0].to_s)
 		components << {:class => base_table, :meth => node[0].to_s}
 
 	end
-	components.map { |x| 
-		if !x.is_a?(Hash)
-			x.ruby_meth = node[0].to_s 
-		end
-		x }
+	# components.map { |x| 
+	# 	if !x.is_a?(Hash)
+	# 		x.ruby_meth = node[0].to_s 
+	# 	end
+	# 	x }
 	
 	prev_state[:base_table] = base_table
 	prev_state[:prev_calls] << node[0].to_s
@@ -520,7 +560,8 @@ def parse_one_query(raw_query)
 	end
 
 	query_node = extract_query(ast)
-	sql, components = convert_to_query_string(query_node, {:base_table => base_table, :prev_calls => []})
+	init_state = {:base_table => base_table, :prev_calls => []}
+	sql, components = convert_to_query_string(query_node, init_state)
 	components += post_process_sql_string(sql, base_table)
 
 	fields = get_fields_and_tables_for_query(components)
@@ -542,6 +583,8 @@ def parse_one_query(raw_query)
 	meta.methods = methods.map{|x|x.to_s}.to_a
   meta.has_limit = has_limit
 	meta.fields = fields
+	meta.components = components
+	meta.table = init_state[:base_table]
 	meta.sql = sql
 
 	$query_map[raw_query] = meta
@@ -582,6 +625,11 @@ def print_detail_with_sql(raw_queries, scopes, schema)
 	$schema = schema
 	$scopes = scopes
 	succ_cnt = 0
+	qcnt = 0
+
+	outputf = File.open( "query.py","w" )
+
+	raw_queries = raw_queries.sort_by { |w| w.stmt }
 
 	raw_queries.each do |raw_query|
 		# if raw_query[:method_name].blank? #only checks scopes
@@ -607,7 +655,9 @@ def print_detail_with_sql(raw_queries, scopes, schema)
 
 		if !meta.sql.blank?
 			#puts "\tparsed: query = #{meta.sql}"
-			puts "\tcomponents = #{(meta.fields.select{|xxx| !xxx.is_a?(Hash)}.map {|xxx| xxx.table+":"+xxx.column}).join(', ')}"
+			#puts "\tcomponents = #{(meta.fields.select{|xxx| !xxx.is_a?(Hash)}.map {|xxx| xxx.table+":"+xxx.column}).join(', ')}"
+			print_str = meta.components.select{|xxx| !xxx.is_a?(Hash)}.map{|xxx| "\t"+component_str(xxx)}.join(" \\\n")
+			puts "\tcomponents = #{print_str}"
 
 			if meta.fields.length > 1
 				succ_cnt += 1
@@ -616,9 +666,17 @@ def print_detail_with_sql(raw_queries, scopes, schema)
 			puts "\tquery cannot be handled"
 		end
 		puts ""
+
+		if meta.fields.length > 1
+			outputf << "# Q #{qcnt} : " + raw_query.stmt.split("\n").map{|xxx| "# "+xxx}.join("\n")
+			outputf << "\n#{meta.table} \\\n" + meta.components.select{|xxx| !xxx.is_a?(Hash)}.map{|xxx| dump_component(xxx)}.select{|xxx| !xxx.blank?}.join(" \\\n")
+			outputf << "\n"
+			qcnt += 1
+		end
 		# if old_stmt.start_with?("CustomEmoji.local.left_joins(:category).reorder(")
 		# 	exit
 		# end
 	end
 	puts "success: #{succ_cnt} / total #{raw_queries.length}"
+	outputf.close   
 end

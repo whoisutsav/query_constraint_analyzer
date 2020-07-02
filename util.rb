@@ -1,3 +1,5 @@
+require './types.rb'
+
 def table_str_to_class(str)
   ActiveSupport::Inflector.camelize(ActiveSupport::Inflector.singularize(str)) 
 end
@@ -50,4 +52,41 @@ def sql_query_fix(base_table, sql)
 		sql = sql.gsub(/:(\w+) /,'? ')
 	end
 	return sql
+end
+
+
+def component_str(c)
+	if c.is_a?(QueryColumn)
+		return "#{c.ruby_meth.nil? ? '' : c.ruby_meth}(#{c.table}.#{c.column})"
+	elsif c.is_a?(QueryPredicate)
+		return "(#{component_str(c.lh)} #{c.cmp} #{component_str(c.rh)})"
+	elsif c.is_a?(QueryComponent)
+		return "#{c.meth}(#{c.param})"
+	elsif c.is_a?(String)
+		return c
+	else
+		return ""
+	end
+end
+
+def dump_component(c, top=true)
+	if c.is_a?(QueryColumn)
+		if c.ruby_meth.nil?
+			if top
+				return ""
+			else
+				return c.column.to_s
+			end
+		else
+			return ".#{c.ruby_meth}('#{c.column}')"
+		end
+	elsif c.is_a?(QueryPredicate)
+		return ".where('#{dump_component(c.lh, false)} #{c.cmp} #{dump_component(c.rh, false)}')"
+	elsif c.is_a?(QueryComponent)
+		return ".#{c.meth}('#{c.param}')"
+	elsif c.is_a?(String)
+		return c
+	else
+		return ""
+	end
 end
