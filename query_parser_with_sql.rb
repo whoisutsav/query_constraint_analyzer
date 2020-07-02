@@ -669,7 +669,7 @@ def print_detail_with_sql(raw_queries, scopes, schema)
 
 		if meta.fields.length > 1
 			outputf << "# Q #{qcnt} : " + raw_query.stmt.split("\n").map{|xxx| "# "+xxx}.join("\n")
-			outputf << "\n#{meta.table} \\\n" + meta.components.select{|xxx| !xxx.is_a?(Hash)}.map{|xxx| dump_component(xxx)}.select{|xxx| !xxx.blank?}.join(" \\\n")
+			outputf << "\nQuery(#{meta.table}) \\\n" + meta.components.select{|xxx| !xxx.is_a?(Hash)}.map{|xxx| dump_component(xxx)}.select{|xxx| !xxx.blank?}.join(" \\\n")
 			outputf << "\n"
 			qcnt += 1
 		end
