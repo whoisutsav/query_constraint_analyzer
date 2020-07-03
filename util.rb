@@ -81,7 +81,7 @@ def dump_component(c, top=true)
 			return ".#{c.ruby_meth}('#{c.column}')"
 		end
 	elsif c.is_a?(QueryPredicate)
-		return ".where('#{dump_component(c.lh, false)} #{c.cmp} #{dump_component(c.rh, false)}')"
+		return ".where(\"#{dump_component(c.lh, false)} #{c.cmp} #{dump_component(c.rh, false)}\")"
 	elsif c.is_a?(QueryComponent)
 		return ".#{c.meth}('#{c.param}')"
 	elsif c.is_a?(String)
